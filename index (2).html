@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Jammin Style</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100%; height: 100%;
+      background: #000;
+      color: #fff;
+      font-family: monospace;
+      overflow: hidden;
+    }
+
+    #app { position: relative; width: 100%; height: 100%; }
+
+    /* ── Video wrap ── */
+    #videoWrap {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: #000;
+    }
+    #video { display: block; background: #000; }
+
+    /* ── Preload: tam ekran siyah arka plan ── */
+    #preload {
+      position: absolute; inset: 0;
+      z-index: 30;
+      display: flex; align-items: center; justify-content: center;
+      padding: 20px; text-align: center;
+      background: #000;
+    }
+
+    /* Aurora preload içinde, en altta */
+    #aurora {
+      position: absolute; inset: 0;
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    #welcomeBox {
+      position: relative; z-index: 1;
+      width: min(92vw, 620px);
+      padding: 36px 28px;
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 20px;
+      background: rgba(4, 6, 16, 0.70);
+      backdrop-filter: blur(22px);
+    }
+
+    #welcomeTitle {
+      font-size: clamp(20px, 4vw, 34px);
+      margin-bottom: 14px;
+      font-weight: bold;
+      letter-spacing: 0.03em;
+    }
+
+    #welcomeText {
+      font-size: clamp(13px, 2.4vw, 19px);
+      line-height: 1.75;
+      opacity: 0.88;
+      margin-bottom: 26px;
+    }
+
+    #loadingArea {
+      font-size: clamp(15px, 2.6vw, 24px);
+      margin-bottom: 22px;
+      opacity: 0.8;
+    }
+
+    #progressBar {
+      width: 100%;
+      height: 4px;
+      background: rgba(255,255,255,0.10);
+      border-radius: 2px;
+      margin-top: 12px;
+      overflow: hidden;
+    }
+
+    #progressFill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #0af, #7f6fff);
+      border-radius: 2px;
+      transition: width 0.25s ease;
+    }
+
+    #startBtn {
+      border: 0;
+      border-radius: 10px;
+      padding: 13px 36px;
+      cursor: pointer;
+      font: inherit;
+      font-size: clamp(14px, 2.2vw, 20px);
+      background: #fff;
+      color: #000;
+      display: none;
+      transition: opacity 0.25s, transform 0.2s;
+    }
+    #startBtn:hover { opacity: 0.85; transform: scale(1.04); }
+
+    /* ── Data overlay ── */
+    #data {
+      position: absolute; inset: 0;
+      z-index: 10;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 7px; padding: 24px;
+      pointer-events: none;
+      font-size: clamp(12px, 1.9vw, 22px);
+      line-height: 1.3;
+      word-break: break-word;
+      text-align: center;
+    }
+
+    .data-line {
+      display: block;
+      padding: 4px 14px;
+      border-radius: 6px;
+      background: rgba(0,0,0,0.18);
+      backdrop-filter: blur(2px);
+      text-shadow: 0 1px 8px rgba(0,0,0,0.9);
+      opacity: 0;
+      transform: translateY(12px) scale(0.97);
+      animation: lineIn 0.45s ease forwards;
+    }
+
+    @keyframes lineIn {
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    @media (max-width: 480px) {
+      #data { font-size: clamp(10px, 3.2vw, 15px); gap: 5px; padding: 12px; }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <div id="videoWrap">
+    <video id="video" preload="auto" playsinline loop>
+      <source src="video.mp4" type="video/mp4" />
+    </video>
+  </div>
+
+  <div id="data" aria-live="polite"></div>
+
+  <div id="preload">
+    <canvas id="aurora"></canvas>
+    <div id="welcomeBox">
+      <div id="welcomeTitle">Siteye hoş geldiniz.</div>
+      <div id="welcomeText">
+        Bu site tamamen ironi amaçlı oluşturulmuştur.<br />
+        İyi eğlenceler dileriz.
+      </div>
+      <div id="loadingArea">
+        Yükleniyor... <span id="progress">0</span>%
+        <div id="progressBar"><div id="progressFill"></div></div>
+      </div>
+      <button id="startBtn" type="button">Başlat</button>
+    </div>
+  </div>
+
+</div>
+<script>
+/* ════════════════════════════════════════════════
+   VIDEO EN/BOY ORANI — bu değeri değiştir:
+     "auto"  → videonun kendi orijinal boyutu
+     "16/9"  → 16:9
+     "4/3"   → 4:3
+     "9/16"  → dikey
+     "21/9"  → ultra-wide
+     "cover" → tam ekranı doldur, kenar keser
+════════════════════════════════════════════════ */
+const VIDEO_ASPECT = "auto";
+
+/* ════ AURORA ════ */
+(function () {
+  const canvas = document.getElementById("aurora");
+  const ctx    = canvas.getContext("2d");
+  let W, H, t = 0, running = true;
+
+  function resize() {
+    W = canvas.width  = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  const BANDS = [
+    { hue: 155, speed: 0.00035, amp: 0.20, phase: 0.0, xoff: 0.50 },
+    { hue: 195, speed: 0.00055, amp: 0.15, phase: 1.8, xoff: 0.38 },
+    { hue: 265, speed: 0.00045, amp: 0.17, phase: 3.4, xoff: 0.62 },
+    { hue: 125, speed: 0.00028, amp: 0.13, phase: 5.1, xoff: 0.28 },
+    { hue: 220, speed: 0.00060, amp: 0.11, phase: 2.2, xoff: 0.75 },
+  ];
+
+  function draw() {
+    if (!running) return;
+    ctx.clearRect(0, 0, W, H);
+
+    BANDS.forEach(b => {
+      const cy = H * (0.15 + Math.sin(t * b.speed + b.phase) * b.amp + 0.3);
+      const cx = W * (b.xoff + Math.cos(t * b.speed * 0.7 + b.phase) * 0.12);
+      const r  = W * 0.68;
+      const g  = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      const hs = Math.sin(t * 0.00018 + b.phase) * 18;
+      g.addColorStop(0,    `hsla(${b.hue + hs},       85%, 58%, 0.24)`);
+      g.addColorStop(0.35, `hsla(${b.hue + hs + 25},  75%, 45%, 0.11)`);
+      g.addColorStop(0.70, `hsla(${b.hue},             65%, 35%, 0.04)`);
+      g.addColorStop(1,    `hsla(${b.hue},             60%, 25%, 0)`);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, H);
+    });
+
+    t++;
+    requestAnimationFrame(draw);
+  }
+  draw();
+
+  window._stopAurora = function () { running = false; };
+})();
+
+/* ════ VIDEO BOYUT ════ */
+const video = document.getElementById("video");
+
+function applyAspect() {
+  const val = VIDEO_ASPECT;
+  if (val === "cover") {
+    video.style.cssText = "width:100%;height:100%;object-fit:cover;max-width:none;max-height:none;";
+  } else if (val === "auto") {
+    video.style.cssText = "max-width:100%;max-height:100%;width:auto;height:auto;";
+  } else {
+    const [w, h] = val.split("/").map(Number);
+    if (w / h >= window.innerWidth / window.innerHeight) {
+      video.style.cssText = `width:100%;height:auto;aspect-ratio:${val};max-width:none;max-height:none;`;
+    } else {
+      video.style.cssText = `height:100%;width:auto;aspect-ratio:${val};max-width:none;max-height:none;`;
+    }
+  }
+}
+applyAspect();
+window.addEventListener("resize", applyAspect);
+
+/* ════ PROGRESS ════ */
+const progressEl   = document.getElementById("progress");
+const progressFill = document.getElementById("progressFill");
+const loadingArea  = document.getElementById("loadingArea");
+const startBtn     = document.getElementById("startBtn");
+const preloadEl    = document.getElementById("preload");
+const dataEl       = document.getElementById("data");
+
+let currentPct = 0, targetPct = 0, progRaf = null;
+
+function animProgress() {
+  if (currentPct < targetPct) {
+    // Lerp: hedefin %4'ü + küçük sabit adım → doğal görünüm
+    currentPct += (targetPct - currentPct) * 0.04 + 0.12;
+    if (currentPct > targetPct) currentPct = targetPct;
+    const pct = Math.floor(currentPct);
+    progressEl.textContent = pct;
+    progressFill.style.width = pct + "%";
+  }
+  if (currentPct < 100) {
+    progRaf = requestAnimationFrame(animProgress);
+  } else {
+    progressEl.textContent = "100";
+    progressFill.style.width = "100%";
+    setTimeout(() => {
+      loadingArea.style.display = "none";
+      startBtn.style.display = "inline-block";
+    }, 300);
+  }
+}
+
+// Sahte progress adımları — yaklaşık 8-12 saniyede tamamlanır
+function startFakeProgress() {
+  const steps = [
+    { to: 18,  delay: 300  },
+    { to: 38,  delay: 900  },
+    { to: 57,  delay: 1500 },
+    { to: 70,  delay: 1400 },
+    { to: 81,  delay: 1200 },
+    { to: 90,  delay: 1100 },
+    { to: 96,  delay: 1000 },
+    { to: 100, delay: 1200 },
+  ];
+  let i = 0;
+  function next() {
+    if (i >= steps.length) return;
+    const s = steps[i++];
+    setTimeout(() => { targetPct = s.to; next(); }, s.delay);
+  }
+  next();
+  animProgress();
+}
+
+// Arka planda gerçek fetch — Content-Length varsa bunu kullan
+async function loadVideo() {
+  try {
+    const res = await fetch("video.mp4");
+    if (!res.ok || !res.body) throw new Error();
+    const cl     = Number(res.headers.get("Content-Length") || 0);
+    const reader = res.body.getReader();
+    const chunks = [];
+    let received = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      received += value.length;
+      if (cl > 0) targetPct = Math.min(99, Math.floor(received / cl * 100));
+    }
+    video.src = URL.createObjectURL(new Blob(chunks, { type: "video/mp4" }));
+    video.load();
+  } catch {}
+  targetPct = 100;
+}
+
+startFakeProgress();
+loadVideo();
+
+/* ════ BİLGİ TOPLAMA ════ */
+let messages = [], step = 0, displayTimer = null, fpsStopper = null;
+
+function pushLine(label, val, sfx = "") {
+  if (val == null || val === "") return;
+  messages.push(`${label}: ${val}${sfx}`);
+}
+
+function getGPU() {
+  try {
+    const c  = document.createElement("canvas");
+    const gl = c.getContext("webgl") || c.getContext("experimental-webgl");
+    if (!gl) return null;
+    const d  = gl.getExtension("WEBGL_debug_renderer_info");
+    if (!d)  return null;
+    return { vendor: gl.getParameter(d.UNMASKED_VENDOR_WEBGL), renderer: gl.getParameter(d.UNMASKED_RENDERER_WEBGL) };
+  } catch { return null; }
+}
+
+async function measureFPS(sec = 2) {
+  return new Promise(res => {
+    let f = 0; const s = performance.now();
+    function t(now) { f++; if (now - s >= sec * 1000) { res(Math.round(f / sec)); return; } fpsStopper = requestAnimationFrame(t); }
+    fpsStopper = requestAnimationFrame(t);
+  });
+}
+
+async function gatherInfo() {
+  messages = []; step = 0; dataEl.innerHTML = "";
+  try {
+    const j = await (await fetch("https://wtfismyip.com/json")).json();
+    pushLine("IP", j.YourFuckingIPAddress);
+    pushLine("Konum", j.YourFuckingLocation);
+    pushLine("Host", j.YourFuckingHostname);
+    pushLine("ISS/ISP", j.YourFuckingISP);
+  } catch {}
+  pushLine("Tarayıcı", navigator.userAgent);
+  pushLine("Dil", navigator.language);
+  pushLine("Ekran", `${screen.width}x${screen.height}`);
+  pushLine("Piksel derinliği", screen.pixelDepth);
+  pushLine("CPU thread", navigator.hardwareConcurrency);
+  pushLine("RAM", navigator.deviceMemory ?? "bilinmiyor", navigator.deviceMemory ? " GB" : "");
+  pushLine("Saat", new Date().toLocaleString());
+  pushLine("Timezone", Intl.DateTimeFormat().resolvedOptions().timeZone);
+  pushLine("Referrer", document.referrer || "yok");
+  const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  if (conn) {
+    pushLine("Network", conn.effectiveType || conn.type || "bilinmiyor");
+    if (conn.downlink != null) pushLine("Downlink", conn.downlink, " Mbps");
+    if (conn.rtt      != null) pushLine("RTT", conn.rtt, " ms");
+    if (conn.saveData != null) pushLine("Data saver", conn.saveData ? "açık" : "kapalı");
+  }
+  if ("getBattery" in navigator) {
+    try {
+      const b = await navigator.getBattery();
+      pushLine("Batarya", Math.round(b.level * 100), "%");
+      pushLine("Şarj", b.charging ? "şarj oluyor" : "şarj olmuyor");
+    } catch {}
+  }
+  const gpu = getGPU();
+  if (gpu) { pushLine("GPU Vendor", gpu.vendor); pushLine("GPU", gpu.renderer); }
+  try { pushLine("FPS", await measureFPS(2)); } catch {}
+}
+
+/* ════ BAŞLAT ════ */
+async function startSequence() {
+  cancelAnimationFrame(progRaf);
+  window._stopAurora();
+  preloadEl.style.display = "none";
+  await gatherInfo();
+  try { await video.play(); } catch {}
+  if (displayTimer) clearInterval(displayTimer);
+  displayTimer = setInterval(() => {
+    if (step >= messages.length) return;
+    const el = document.createElement("span");
+    el.className = "data-line";
+    el.textContent = messages[step++];
+    dataEl.appendChild(el);
+  }, 500);
+}
+
+startBtn.addEventListener("click", startSequence);
+</script>
+</body>
+</html>
